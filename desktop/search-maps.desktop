@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Search Maps
+Comment=Search for places on a map
+Exec=python3 search_maps.py
+Icon=search_maps.png
+Terminal=false
+Categories=Utility;Geography;
