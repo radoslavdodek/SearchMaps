@@ -306,7 +306,7 @@ class SearchMapsUI(QMainWindow):
         print(
             f"[Action] Searching with query='{search_string}', lat={latitude}, lng={longitude}, radius={radius}")
 
-        places = self.google_maps_text_search(
+        places, error = self.google_maps_text_search(
             api_key=api_key,
             search_string=search_string,
             latitude=latitude,
@@ -314,6 +314,12 @@ class SearchMapsUI(QMainWindow):
             radius=radius,
             min_reviews=0
         )
+        if error:
+            self.show_error(error)
+            self.status_label.setText("")
+            self.fetch_button.setEnabled(True)
+            return
+
         self.last_places = places
 
         print(f"[Result] Fetched {len(places)} places")
@@ -365,8 +371,9 @@ class SearchMapsUI(QMainWindow):
             response = requests.post(url, headers=headers, json=body)
 
             if response.status_code != 200:
-                print(f"Error: {response.status_code} - {response.text}")
-                return []
+                error_msg = f"Error: {response.status_code} - {response.text}"
+                print(error_msg)
+                return None, error_msg
 
             data = response.json()
 
