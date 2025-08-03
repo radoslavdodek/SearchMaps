@@ -2,7 +2,7 @@
 
 ![SearchMap preview](pictures/app-preview.jpg)
 
-SearchMap is a vibe-coded Python app that helps you find places, sorted by how many reviews they have.
+SearchMap is a vibe-coded Python app that helps you find places, showing the ones with the most reviews first. Just double-click on a result to open it in Google Maps in your browser.
 
 ## Quick Start
 
