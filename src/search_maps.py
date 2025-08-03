@@ -395,7 +395,7 @@ class SearchMapsUI(QMainWindow):
         # Sort by number of reviews (descending), then by review score (descending)
         places.sort(key=lambda p: (-p.get('userRatingCount', 0), -p.get('rating', 0)))
 
-        return places
+        return places, None
 
     def update_map_radius(self, value):
         # value is in km, convert to meters
