@@ -2,11 +2,13 @@
 import sys
 import time
 import webbrowser
+import math
 
 import requests
 from PySide6.QtCore import QObject, Slot, Signal
 from PySide6.QtCore import QSettings
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
@@ -218,15 +220,17 @@ class SearchMapsUI(QMainWindow):
         self.results_table = ResultsTableWidget(self)
         self.results_table.cellClicked.connect(self.on_table_row_clicked)
         self.results_table.cellDoubleClicked.connect(self.on_table_row_double_clicked)
-        self.results_table.setColumnCount(4)
+        self.results_table.setColumnCount(5)
         self.results_table.setHorizontalHeaderLabels([
-            "Place name", "Rating", "Reviews count", "Address"
+            "#", "Place name", "Rating", "Reviews count", "Address"
         ])
         header = self.results_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.Stretch)  # Place name
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # Rating
-        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Reviews count
-        header.setSectionResizeMode(3, QHeaderView.Stretch)  # Address
+        header.setSectionResizeMode(1, QHeaderView.Stretch)  # Place name
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Rating
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Reviews count
+        header.setSectionResizeMode(4, QHeaderView.Stretch)  # Address
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # "#" column
+
         self.results_table.verticalHeader().setVisible(False)
         self.results_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.results_table.setSelectionBehavior(QTableWidget.SelectRows)
@@ -257,7 +261,7 @@ class SearchMapsUI(QMainWindow):
             self.api_key = new_key
 
     def open_place_in_maps(self, row):
-        item = self.results_table.item(row, 0)
+        item = self.results_table.item(row, 1)
         if item:
             place_id = item.data(1000)
             if place_id:
@@ -306,7 +310,7 @@ class SearchMapsUI(QMainWindow):
         print(
             f"[Action] Searching with query='{search_string}', lat={latitude}, lng={longitude}, radius={radius}")
 
-        places, error = self.google_maps_text_search(
+        original_order, places, error = self.google_maps_text_search(
             api_key=api_key,
             search_string=search_string,
             latitude=latitude,
@@ -321,10 +325,11 @@ class SearchMapsUI(QMainWindow):
             return
 
         self.last_places = places
+        self.last_places_original_order = original_order  # Save for later use
 
         print(f"[Result] Fetched {len(places)} places")
 
-        self.update_results_table(places)
+        self.update_results_table(places, original_order)
 
         # Clear loading status and re-enable button
         self.status_label.setText("")
@@ -392,10 +397,23 @@ class SearchMapsUI(QMainWindow):
             time.sleep(2)
             body['pageToken'] = data['nextPageToken']
 
-        # Sort by number of reviews (descending), then by review score (descending)
-        places.sort(key=lambda p: (-p.get('userRatingCount', 0), -p.get('rating', 0)))
+        original_order = list(places)  # Make a copy of the original order
 
-        return places, None
+        # Filter places by distance from center
+        filtered_places = []
+        for place in places:
+            loc = place.get('location', {})
+            plat = loc.get('latitude')
+            plon = loc.get('longitude')
+            if plat is not None and plon is not None:
+                dist = haversine_distance(latitude, longitude, plat, plon)
+                if dist <= radius:
+                    filtered_places.append(place)
+
+        # Sort by number of reviews (descending), then by review score (descending)
+        filtered_places.sort(key=lambda p: (-p.get('userRatingCount', 0), -p.get('rating', 0)))
+
+        return original_order, filtered_places, None
 
     def update_map_radius(self, value):
         # value is in km, convert to meters
@@ -411,8 +429,17 @@ class SearchMapsUI(QMainWindow):
         """Normalize longitude to the range [-180, 180]."""
         return ((lon + 180) % 360) - 180
 
-    def update_results_table(self, places):
+    def update_results_table(self, places, original_order=None):
         self.results_table.setRowCount(len(places))
+        n = len(original_order) if original_order else len(places)
+        # Map place id to its original index
+        id_to_index = {}
+        if original_order:
+            for idx, place in enumerate(original_order):
+                pid = place.get('id', None)
+                if pid:
+                    id_to_index[pid] = idx
+
         for row, place in enumerate(places):
             name = place.get('displayName', {}).get('text', '')
             rating = str(place.get('rating', ''))
@@ -420,15 +447,42 @@ class SearchMapsUI(QMainWindow):
             address = place.get('formattedAddress', '')
             place_id = place.get('id', '')
 
-            self.results_table.setItem(row, 0, QTableWidgetItem(name))
-            self.results_table.setItem(row, 1, QTableWidgetItem(rating))
-            self.results_table.setItem(row, 2, QTableWidgetItem(reviews))
-            self.results_table.setItem(row, 3, QTableWidgetItem(address))
-            self.results_table.item(row, 0).setData(1000, place_id)
+            # Use original order for relevance
+            if original_order and place_id in id_to_index:
+                orig_idx = id_to_index[place_id]
+                if n > 1:
+                    relevance = 1.0 - (orig_idx / (n - 1))
+                else:
+                    relevance = 1.0
+                r_text = str(orig_idx + 1)
+            else:
+                # fallback: use current row
+                if n > 1:
+                    relevance = 1.0 - (row / (n - 1))
+                else:
+                    relevance = 1.0
+                r_text = str(row + 1)
+
+            # Interpolate color: green (most relevant) to red (least relevant)
+            r = int(255 * (1 - relevance))
+            g = int(255 * relevance)
+            b = 0
+            color = QColor(r, g, b, 80)
+
+            relevance_item = QTableWidgetItem(r_text)
+            relevance_item.setBackground(color)
+            self.results_table.setItem(row, 0, relevance_item)
+
+            item_name = QTableWidgetItem(name)
+            item_name.setData(1000, place_id)
+            self.results_table.setItem(row, 1, item_name)
+            self.results_table.setItem(row, 2, QTableWidgetItem(rating))
+            self.results_table.setItem(row, 3, QTableWidgetItem(reviews))
+            self.results_table.setItem(row, 4, QTableWidgetItem(address))
 
     def show_error(self, message):
-        """Display an error message dialog."""
-        QMessageBox.critical(self, "Error", message)
+            """Display an error message dialog."""
+            QMessageBox.critical(self, "Error", message)
 
     def closeEvent(self, event):
         settings = QSettings("YourCompany", "SearchMaps")
@@ -440,6 +494,8 @@ class SearchMapsUI(QMainWindow):
         # Save table data (places)
         places_json = json.dumps(getattr(self, "last_places", []))
         settings.setValue("places", places_json)
+        original_order_json = json.dumps(getattr(self, "last_places_original_order", []))
+        settings.setValue("places_original_order", original_order_json)
         # Save selected row
         selected = self.results_table.currentRow()
         settings.setValue("selected_row", selected)
@@ -462,11 +518,19 @@ class SearchMapsUI(QMainWindow):
 
         # Restore table data (places)
         places_json = settings.value("places", "")
+        original_order_json = settings.value("places_original_order", "")
+        original_order = None
+        if original_order_json:
+            try:
+                original_order = json.loads(original_order_json)
+                self.last_places_original_order = original_order
+            except Exception as e:
+                print(f"Failed to restore original order: {e}")
         if places_json:
             try:
                 places = json.loads(places_json)
                 self.last_places = places
-                self.update_results_table(places)
+                self.update_results_table(places, original_order)
             except Exception as e:
                 print(f"Failed to restore places: {e}")
 
@@ -481,6 +545,17 @@ class SearchMapsUI(QMainWindow):
                 print(f"Failed to restore selected row: {e}")
 
         self.api_key = settings.value("api_key", "")
+
+def haversine_distance(lat1, lon1, lat2, lon2):
+    """Calculate the great-circle distance between two points (in meters)."""
+    R = 6371000  # Earth radius in meters
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return R * c
 
 class ApiKeyDialog(QDialog):
     """Dialog to enter the Google Maps API key."""
