@@ -2,7 +2,7 @@
 Type=Application
 Name=Search Maps
 Comment=Search for places on a map
-Exec=python3 search_maps.py
+Exec=run_search_maps.sh
 Icon=search_maps.png
 Terminal=false
 Categories=Utility;Geography;
