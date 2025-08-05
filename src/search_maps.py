@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
+import json
+import math
 import sys
 import time
 import webbrowser
-import math
 
 import requests
 from PySide6.QtCore import QObject, Slot, Signal
@@ -16,79 +17,122 @@ from PySide6.QtWidgets import (
     QPushButton, QFormLayout,
     QMessageBox, QGroupBox
 )
+from PySide6.QtWidgets import QDialog, QDialogButtonBox
 from PySide6.QtWidgets import QLabel
 from PySide6.QtWidgets import QLineEdit
 from PySide6.QtWidgets import QSizePolicy
 from PySide6.QtWidgets import QTableWidget, QHeaderView
 from PySide6.QtWidgets import QTableWidgetItem
-from PySide6.QtWidgets import QDialog, QDialogButtonBox
-from PySide6.QtWidgets import QStyle
 
-import json
-
-LEAFLET_HTML = """
-<!DOCTYPE html>
+LEAFLET_HTML = """<!DOCTYPE html>
 <html>
 <head>
-  <meta charset="utf-8" />
-  <title>OpenStreetMap with Leaflet</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <style>
-    html, body { height: 100%; margin: 0; padding: 0; }
-    #map { width: 100%; height: 100vh; min-height: 100%; }
-  </style>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <meta charset="utf-8"/>
+    <title>OpenStreetMap with Leaflet</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+        #map {
+            width: 100%;
+            height: 100vh;
+            min-height: 100%;
+        }
+        #center-x {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            width: 24px;
+            height: 24px;
+            margin-left: -12px;
+            margin-top: -12px;
+            z-index: 999;
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .x-line {
+            position: absolute;
+            width: 24px;
+            height: 1px;
+            background: #0078ff;
+            left: 0;
+            top: 50%;
+            opacity: 0.85;
+        }
+        .x-line.first {
+            transform: rotate(45deg);
+        }
+        .x-line.second {
+            transform: rotate(-45deg);
+        }
+    </style>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 </head>
 <body>
-  <div id="map"></div>
-  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-  <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
-  <script>
-      var initialCenter = [48.8584, 2.2945];
-      var initialZoom = 5;
-      var map = L.map('map').setView(initialCenter, initialZoom);
+<div id="map"></div>
+<div id="center-x">
+    <div class="x-line first"></div>
+    <div class="x-line second"></div>
+</div>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+<script>
+    var initialCenter = [48.8584, 2.2945];
+    var initialZoom = 5;
+    var map = L.map('map').setView(initialCenter, initialZoom);
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '© OpenStreetMap contributors'
+        maxZoom: 19,
+        attribution: '© OpenStreetMap contributors'
     }).addTo(map);
 
     var radiusMeters = 50000;
     var centerCircle = L.circle(map.getCenter(), {
-      color: 'blue',
-      fillColor: '#30f',
-      fillOpacity: 0.2,
-      radius: radiusMeters
+        color: 'blue',
+        fillColor: '#30f',
+        fillOpacity: 0.08,
+        radius: radiusMeters
     }).addTo(map);
 
-    map.on('move', function() {
-      centerCircle.setLatLng(map.getCenter());
-      updatePythonCenter();
+    map.on('move', function () {
+        centerCircle.setLatLng(map.getCenter());
+        updatePythonCenter();
     });
 
-      function updatePythonCenter() {
+    function updatePythonCenter() {
         if (window.bridge) {
-          var c = map.getCenter();
-          var z = map.getZoom();
-          window.bridge.setCenterAndZoom(c.lat, c.lng, z);
+            var c = map.getCenter();
+            var z = map.getZoom();
+            window.bridge.setCenterAndZoom(c.lat, c.lng, z);
         }
-      }
-      
-      map.on('move', updatePythonCenter);
-      map.on('zoom', updatePythonCenter);
+    }
+
+    map.on('move', updatePythonCenter);
+    map.on('zoom', updatePythonCenter);
 
     // QWebChannel setup
-    new QWebChannel(qt.webChannelTransport, function(channel) {
-      window.bridge = channel.objects.bridge;
-      // Send initial center
-      updatePythonCenter();
+    new QWebChannel(qt.webChannelTransport, function (channel) {
+        window.bridge = channel.objects.bridge;
+        // Send initial center
+        updatePythonCenter();
     });
-    
-      // Add a function to set map view from Python
-      window.setMapView = function(lat, lng, zoom) {
+
+    // Add a function to set map view from Python
+    window.setMapView = function (lat, lng, zoom) {
         map.setView([lat, lng], zoom);
-      }    
-  </script>
+    }
+
+    // Add a function to set radius from Python
+    window.setCircleRadius = function (radius) {
+        radiusMeters = radius;
+        centerCircle.setRadius(radius);
+    }
+</script>
 </body>
 </html>
 """
@@ -422,6 +466,9 @@ class SearchMapsUI(QMainWindow):
             if (typeof centerCircle !== 'undefined') {{
                 centerCircle.setRadius({radius_m});
             }}
+            if (typeof window.setCircleRadius === 'function') {{
+                window.setCircleRadius({radius_m});
+            }}
         """
         self.map_view.page().runJavaScript(js)
 
@@ -481,8 +528,8 @@ class SearchMapsUI(QMainWindow):
             self.results_table.setItem(row, 4, QTableWidgetItem(address))
 
     def show_error(self, message):
-            """Display an error message dialog."""
-            QMessageBox.critical(self, "Error", message)
+        """Display an error message dialog."""
+        QMessageBox.critical(self, "Error", message)
 
     def closeEvent(self, event):
         settings = QSettings("YourCompany", "SearchMaps")
@@ -546,6 +593,7 @@ class SearchMapsUI(QMainWindow):
 
         self.api_key = settings.value("api_key", "")
 
+
 def haversine_distance(lat1, lon1, lat2, lon2):
     """Calculate the great-circle distance between two points (in meters)."""
     R = 6371000  # Earth radius in meters
@@ -553,12 +601,14 @@ def haversine_distance(lat1, lon1, lat2, lon2):
     phi2 = math.radians(lat2)
     dphi = math.radians(lat2 - lat1)
     dlambda = math.radians(lon2 - lon1)
-    a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return R * c
 
+
 class ApiKeyDialog(QDialog):
     """Dialog to enter the Google Maps API key."""
+
     def __init__(self, parent=None, api_key=""):
         super().__init__(parent)
         self.setWindowTitle("API Key Settings")
@@ -589,6 +639,7 @@ class ApiKeyDialog(QDialog):
 
     def get_api_key(self):
         return self.api_key_edit.text().strip()
+
 
 def main():
     QApplication.setApplicationName("Search Maps")
