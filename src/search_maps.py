@@ -86,9 +86,10 @@ LEAFLET_HTML = """<!DOCTYPE html>
     var initialZoom = 5;
     var map = L.map('map').setView(initialCenter, initialZoom);
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '© OpenStreetMap contributors'
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+        maxZoom: 20,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>',
+        subdomains: 'abcd'
     }).addTo(map);
 
     var radiusMeters = 50000;
