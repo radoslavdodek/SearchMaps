@@ -28,4 +28,4 @@ This application requires a Google Maps API key. You can obtain an API key by fo
 2. Create or select a project.
 3. Navigate to **APIs & Services > Credentials**.
 4. Click **Create credentials** and select **API key**.
-5. Enable the required Google Maps APIs.
+5. Enable the required Google Maps APIs: "Places API (New)".
